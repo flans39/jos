@@ -24,7 +24,7 @@ static struct Env *env_free_list;	// Free environment list
 // Set up global descriptor table (GDT) with separate segments for
 // kernel mode and user mode.  Segments serve many purposes on the x86.
 // We don't use any of their memory-mapping capabilities, but we need
-// them to switch privilege levels. 
+// them to switch privilege levels.
 //
 // The kernel and user segments are identical except for the DPL.
 // To load the SS register, the CPL must equal the DPL.  Thus,
@@ -116,6 +116,10 @@ env_init(void)
 {
 	// Set up envs array
 	// LAB 3: Your code here.
+	for (int i=NENV-1; i>=0; i--) {
+		envs[i].env_link = env_free_list;
+		env_free_list = envs+i;
+	}
 
 	// Per-CPU part of the initialization
 	env_init_percpu();
@@ -179,6 +183,13 @@ env_setup_vm(struct Env *e)
 	//    - The functions in kern/pmap.h are handy.
 
 	// LAB 3: Your code here.
+	e->env_pgdir = (pde_t*)page2kva(p);
+	p->pp_ref++;
+	for (int i=0; i<PDX(UTOP); i++)
+		e->env_pgdir[i] = 0;
+	for (int i=PDX(UTOP); i<1024; i++)
+		e->env_pgdir[i] = kern_pgdir[i];
+
 
 	// UVPT maps the env's own page table read-only.
 	// Permissions: kernel R, user R
@@ -267,6 +278,15 @@ region_alloc(struct Env *e, void *va, size_t len)
 	//   'va' and 'len' values that are not page-aligned.
 	//   You should round va down, and round (va + len) up.
 	//   (Watch out for corner-cases!)
+	void *begin = (void*)ROUNDDOWN((unsigned)va, PGSIZE);
+	void *end = (void*)ROUNDUP((unsigned)va+len, PGSIZE);
+	for (void *i=begin; i<end; i+=PGSIZE) {
+		struct PageInfo *p=page_alloc(0);	// do not initialize
+		if (!p)
+			panic("page_alloc fail");
+		if (page_insert(e->env_pgdir, p, i, PTE_W | PTE_U))
+			panic("page_insert fail");
+	}
 }
 
 //

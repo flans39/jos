@@ -373,7 +373,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 		struct PageInfo *p=page_alloc(ALLOC_ZERO);
 		if (!p) return NULL;
 		p->pp_ref++;
-		*pde = page2pa(p)|PTE_P|PTE_W;	// page itself -- kernel RW, user NONE
+		*pde = page2pa(p)|PTE_P|PTE_W|PTE_U;
 		return KADDR(PTE_ADDR(*pde))+sizeof(pte_t)*PTX(va);
 	}
 	return NULL;
@@ -436,7 +436,6 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 		page_remove(pgdir, va);
 	}
 	*pte = page2pa(pp)|perm|PTE_P;
-	pgdir[PDX(va)] |= perm|PTE_P;	// not sure!
 	return 0;
 }
 
@@ -526,6 +525,16 @@ int
 user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
 	// LAB 3: Your code here.
+	const void *end = va+len;
+	pte_t *pte;
+	while (va < end) {
+		pte = pgdir_walk(env->env_pgdir, va, 0);
+		if (!pte || va>=(void*)ULIM || ((*pte)&perm)!=perm) {
+			user_mem_check_addr = (unsigned)va;
+			return -E_FAULT;
+		}
+		va = (void*)ROUNDUP((unsigned)va+1, PGSIZE);
+	}
 
 	return 0;
 }

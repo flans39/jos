@@ -105,8 +105,7 @@ fork(void)
 				if ((uvpt[PGNUM(i)]&PTE_W) || (uvpt[PGNUM(i)]&PTE_COW))
 					duppage(envid, PGNUM(i));
 				else
-					sys_page_map(0, (void*)(i*PGSIZE),
-						envid, (void*)(i*PGSIZE), PTE_P|(uvpt[PGNUM(i)]&PTE_U));
+					sys_page_map(0, (void*)i, envid, (void*)i, PTE_P|(uvpt[PGNUM(i)]&PTE_U));
 			}
 		}
 		sys_page_alloc(envid, (void*)(UXSTACKTOP-PGSIZE), PTE_U|PTE_W|PTE_P);

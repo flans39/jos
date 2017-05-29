@@ -182,6 +182,8 @@ trap_dispatch(struct Trapframe *tf)
 	// LAB 3: Your code here.
 	if (tf->tf_trapno == T_PGFLT)
 		page_fault_handler(tf);
+	else if (tf->tf_trapno == T_DEBUG)
+		monitor(tf);
 	else if (tf->tf_trapno == T_BRKPT)
 		monitor(tf);
 	else if (tf->tf_trapno == T_SYSCALL)

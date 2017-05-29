@@ -175,6 +175,7 @@ mem_init(void)
 	//      (ie. perm = PTE_U | PTE_P)
 	//    - pages itself -- kernel RW, user NONE
 	// Your code goes here:
+	lcr4(rcr4()|CR4_PSE);
 	boot_map_region(kern_pgdir, UPAGES, PTSIZE, PADDR(pages), PTE_U);
 
 	//////////////////////////////////////////////////////////////////////
@@ -378,9 +379,18 @@ static void
 boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
 {
 	// Fill this function in
-	for (size_t i=0; i<size; i+=PGSIZE) {
-		pte_t *pte = pgdir_walk(pgdir, (const void*)(va+i), 1);
-		*pte = (pa+i)|perm|PTE_P;
+	if (size<PTSIZE || (pa&0x3fffff)) {
+		for (size_t i=0; i<size; i+=PGSIZE) {
+			pte_t *pte = pgdir_walk(pgdir, (const void*)(va+i), 1);
+			*pte = (pa+i)|perm|PTE_P;
+		}
+	}
+	else {
+		for (size_t i=0; i<size; i+=PTSIZE) {
+			pde_t *pde = pgdir+PDX(va+i);
+			*pde = (pa+i)|perm|PTE_P|PTE_PS;
+			// cprintf("va %08x <====> pa %08x pde(%08x)=[%08x]\n", va+i, pa+i, pde, *pde);
+		}
 	}
 }
 
@@ -691,6 +701,11 @@ check_va2pa(pde_t *pgdir, uintptr_t va)
 	pgdir = &pgdir[PDX(va)];
 	if (!(*pgdir & PTE_P))
 		return ~0;
+	// check PTE_PS
+	if (*pgdir & PTE_PS) {
+		// cprintf("va %08x: pde(%08x)=[%08x]\n", va, pgdir, *pgdir);
+		return (*pgdir&~0x3fffff)|(va&0x3ff000);
+	}
 	p = (pte_t*) KADDR(PTE_ADDR(*pgdir));
 	if (!(p[PTX(va)] & PTE_P))
 		return ~0;

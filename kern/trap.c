@@ -321,6 +321,8 @@ trap(struct Trapframe *tf)
 		lock_kernel();
 		assert(curenv);
 
+		asm volatile("fxsave %0" : "=m"(curenv->FPU_state));
+
 		// Garbage collect if current enviroment is a zombie
 		if (curenv->env_status == ENV_DYING) {
 			env_free(curenv);

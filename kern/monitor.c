@@ -81,6 +81,10 @@ int
 mon_step(int argc, char **argv, struct Trapframe *tf)
 {
 	tf->tf_eflags |= FL_TF;
+	struct Eipdebuginfo info;
+	debuginfo_eip(tf->tf_eip, &info);
+	cprintf("-> %s:%d: %.*s+%d\n", info.eip_file, info.eip_line,
+			info.eip_fn_namelen, info.eip_fn_name, tf->tf_eip-info.eip_fn_addr);
 	return -1;
 }
 

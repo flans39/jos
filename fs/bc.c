@@ -48,6 +48,24 @@ bc_pgfault(struct UTrapframe *utf)
 	// the disk.
 	//
 	// LAB 5: you code here:
+	#define max_cached_pages 2
+	static int cached_pages, rec[max_cached_pages], last;
+	if (++cached_pages > max_cached_pages) {
+		// do eviction
+		int p=-1;
+		for (int i=0; i<max_cached_pages; i++) {
+			if (!(uvpt[rec[i]]&PTE_A))
+				break;
+		}
+		if (p == -1)
+			p = (last+1)%max_cached_pages;
+		if (uvpt[rec[p]] & PTE_D)
+			flush_block((void*)(rec[p]<<12));
+		sys_page_unmap(0, (void*)(rec[p]<<12));
+		--cached_pages;
+		rec[p] = PGNUM(addr);
+		last = p;
+	}
 	addr = ROUNDDOWN(addr,PGSIZE);
 	sys_page_alloc(0, addr, PTE_SYSCALL);
 	ide_read(blockno*BLKSECTS, addr, BLKSECTS);

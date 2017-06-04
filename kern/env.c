@@ -88,11 +88,14 @@ envid2env(envid_t envid, struct Env **env_store, bool checkperm)
 	// to ensure that the envid is not stale
 	// (i.e., does not refer to a _previous_ environment
 	// that used the same slot in the envs[] array).
+	LOCK(sched);
 	e = &envs[ENVX(envid)];
 	if (e->env_status == ENV_FREE || e->env_id != envid) {
 		*env_store = 0;
+		UNLOCK(sched);
 		return -E_BAD_ENV;
 	}
+	UNLOCK(sched);
 
 	// Check that the calling environment has legitimate permission
 	// to manipulate the specified environment.
@@ -162,12 +165,15 @@ env_init_percpu(void)
 static int
 env_setup_vm(struct Env *e)
 {
+	LOCK(page);
 	int i;
 	struct PageInfo *p = NULL;
 
 	// Allocate a page for the page directory
-	if (!(p = page_alloc(ALLOC_ZERO)))
+	if (!(p = page_alloc(ALLOC_ZERO))) {
+		UNLOCK(page);
 		return -E_NO_MEM;
+	}
 
 	// Now, set e->env_pgdir and initialize the page directory.
 	//
@@ -197,7 +203,7 @@ env_setup_vm(struct Env *e)
 	// UVPT maps the env's own page table read-only.
 	// Permissions: kernel R, user R
 	e->env_pgdir[PDX(UVPT)] = PADDR(e->env_pgdir) | PTE_P | PTE_U;
-
+	UNLOCK(page);
 	return 0;
 }
 
@@ -212,12 +218,16 @@ env_setup_vm(struct Env *e)
 int
 env_alloc(struct Env **newenv_store, envid_t parent_id)
 {
+	// sched locked before entry
+	LOCK(envlist);
 	int32_t generation;
 	int r;
 	struct Env *e;
 
-	if (!(e = env_free_list))
+	if (!(e = env_free_list)) {
+		UNLOCK(envlist);
 		return -E_NO_FREE_ENV;
+	}
 
 	// Allocate and set up the page directory for this environment.
 	if ((r = env_setup_vm(e)) < 0)
@@ -271,6 +281,7 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 	*newenv_store = e;
 
 	cprintf("[%08x] new env %08x\n", curenv ? curenv->env_id : 0, e->env_id);
+	UNLOCK(envlist);
 	return 0;
 }
 
@@ -390,6 +401,7 @@ void
 env_create(uint8_t *binary, enum EnvType type)
 {
 	// LAB 3: Your code here.
+	// only called by i386_init, so no more lock needed
 	struct Env *e;
 	env_alloc(&e, 0);
 	load_icode(e, binary);
@@ -402,6 +414,9 @@ env_create(uint8_t *binary, enum EnvType type)
 void
 env_free(struct Env *e)
 {
+	// sched locked before entry
+	LOCK(page);
+	LOCK(envlist);
 	pte_t *pt;
 	uint32_t pdeno, pteno;
 	physaddr_t pa;
@@ -447,6 +462,8 @@ env_free(struct Env *e)
 	e->env_status = ENV_FREE;
 	e->env_link = env_free_list;
 	env_free_list = e;
+	UNLOCK(envlist);
+	UNLOCK(page);
 }
 
 //
@@ -460,8 +477,10 @@ env_destroy(struct Env *e)
 	// If e is currently running on other CPUs, we change its state to
 	// ENV_DYING. A zombie environment will be freed the next time
 	// it traps to the kernel.
+	LOCK(sched);
 	if (e->env_status == ENV_RUNNING && curenv != e) {
 		e->env_status = ENV_DYING;
+		UNLOCK(sched);
 		return;
 	}
 
@@ -469,8 +488,10 @@ env_destroy(struct Env *e)
 
 	if (curenv == e) {
 		curenv = NULL;
+		UNLOCK(sched);
 		sched_yield();
 	}
+	UNLOCK(sched);
 }
 
 
@@ -524,6 +545,7 @@ env_run(struct Env *e)
 	//	e->env_tf to sensible values.
 
 	// LAB 3: Your code here.
+	// sched locked before entry
 	if (curenv && curenv->env_status==ENV_RUNNING)
 		curenv->env_status = ENV_RUNNABLE;
 	curenv = e;
@@ -531,7 +553,8 @@ env_run(struct Env *e)
 	e->env_runs++;
 	lcr3(PADDR(e->env_pgdir));
 	asm volatile("fxrstor %0" : : "m"(e->FPU_state));
-	unlock_kernel();
+	// unlock_kernel();
+	UNLOCK(sched);
 	env_pop_tf(&e->env_tf);
 
 	// panic("env_run not yet implemented");

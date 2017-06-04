@@ -26,7 +26,7 @@ pgfault(struct UTrapframe *utf)
 
 	// LAB 4: Your code here.
 	if (!(err&FEC_WR) || !(uvpt[PGNUM(addr)]&PTE_COW))
-		panic("the faulting access was not a write, or not to a copy-on-write page");
+		panic("the access to %08x was not a write, or not to a copy-on-write page\n", addr);
 
 	// Allocate a new page, map it at a temporary location (PFTEMP),
 	// copy the data from the old page to the new page, then move the new

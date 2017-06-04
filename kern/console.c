@@ -9,6 +9,7 @@
 #include <kern/console.h>
 #include <kern/trap.h>
 #include <kern/picirq.h>
+#include <kern/spinlock.h>
 
 static void cons_intr(int (*proc)(void));
 static void cons_putc(int c);
@@ -415,6 +416,7 @@ cons_intr(int (*proc)(void))
 int
 cons_getc(void)
 {
+	LOCK(console);
 	int c;
 
 	// poll for any pending input characters,
@@ -428,8 +430,10 @@ cons_getc(void)
 		c = cons.buf[cons.rpos++];
 		if (cons.rpos == CONSBUFSIZE)
 			cons.rpos = 0;
+		UNLOCK(console);
 		return c;
 	}
+	UNLOCK(console);
 	return 0;
 }
 

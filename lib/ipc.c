@@ -48,12 +48,16 @@ ipc_send(envid_t to_env, uint32_t val, void *pg, int perm)
 	// LAB 4: Your code here.
 	// panic("ipc_send not implemented");
 	int ret;
+	// cprintf("send [%08x]: val=%d pg=%08x perm=%d\n", to_env, val, pg, perm);
 	while (true) {
 		ret = sys_ipc_try_send(to_env, val, pg?pg:(void*)UTOP, perm);
 		if (ret == 0)
 			break;
-		if (ret != -E_IPC_NOT_RECV)
-			panic("any error other than -E_IPC_NOT_RECV");
+		if (ret != -E_IPC_NOT_RECV) {
+			cprintf("fail [%08x]: val=%d pg=%08x perm=%d\n", to_env, val, pg, perm);
+			sys_ipc_try_send(to_env, val, pg?pg:(void*)UTOP, perm);
+			panic("any error other than -E_IPC_NOT_RECV : %e\n", ret);
+		}
 		sys_yield();
 	}
 }

@@ -19,6 +19,16 @@ struct spinlock {
 #endif
 };
 
+struct spinlock page_lock;		// pages, *env_pgdir
+struct spinlock console_lock;	// console
+struct spinlock sched_lock;		// env_status, env_tf, env_pgdir
+struct spinlock upcall_lock;	// env_pgfault_upcall
+struct spinlock envlist_lock;	// env_link, env_free_list
+struct spinlock ipc_lock;		// ipc
+
+#define LOCK(x) spin_lock(& x ## _lock)
+#define UNLOCK(x) spin_unlock(& x ## _lock)
+
 void __spin_initlock(struct spinlock *lk, char *name);
 void spin_lock(struct spinlock *lk);
 void spin_unlock(struct spinlock *lk);

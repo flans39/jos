@@ -29,6 +29,7 @@ sched_yield(void)
 	// below to halt the cpu.
 
 	// LAB 4: Your code here.
+	LOCK(sched);
 	struct Env *e=thiscpu->cpu_env;
 	int i=(e?e-envs:0), j=0;
 	while (++j <= NENV) {
@@ -74,7 +75,8 @@ sched_halt(void)
 	xchg(&thiscpu->cpu_status, CPU_HALTED);
 
 	// Release the big kernel lock as if we were "leaving" the kernel
-	unlock_kernel();
+	// unlock_kernel();
+	UNLOCK(sched);
 
 	// Reset stack pointer, enable interrupts and then halt.
 	asm volatile (

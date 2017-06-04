@@ -10,6 +10,7 @@
 #include <kern/kclock.h>
 #include <kern/env.h>
 #include <kern/cpu.h>
+#include <kern/spinlock.h>
 
 // These variables are set by i386_detect_memory()
 size_t npages;			// Amount of physical memory (in pages)
@@ -608,17 +609,19 @@ int
 user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
 	// LAB 3: Your code here.
+	LOCK(page);
 	const void *end = va+len;
 	pte_t *pte;
 	while (va < end) {
 		pte = pgdir_walk(env->env_pgdir, va, 0);
 		if (!pte || va>=(void*)ULIM || ((*pte)&perm)!=perm) {
 			user_mem_check_addr = (unsigned)va;
+			UNLOCK(page);
 			return -E_FAULT;
 		}
 		va = (void*)ROUNDUP((unsigned)va+1, PGSIZE);
 	}
-
+	UNLOCK(page);
 	return 0;
 }
 

@@ -254,13 +254,16 @@ trap_dispatch(struct Trapframe *tf)
 		return;
 	}
 	if (tf->tf_trapno == T_SYSCALL) {
-		tf->tf_regs.reg_eax = syscall(
+		int r = syscall(
 			tf->tf_regs.reg_eax,
 			tf->tf_regs.reg_edx,
 			tf->tf_regs.reg_ecx,
 			tf->tf_regs.reg_ebx,
 			tf->tf_regs.reg_edi,
 			tf->tf_regs.reg_esi);
+		LOCK(sched);
+		tf->tf_regs.reg_eax = r;
+		UNLOCK(sched);
 		return;
 	}
 
@@ -306,8 +309,10 @@ trap(struct Trapframe *tf)
 
 	// Re-acqurie the big kernel lock if we were halted in
 	// sched_yield()
-	if (xchg(&thiscpu->cpu_status, CPU_STARTED) == CPU_HALTED)
-		lock_kernel();
+
+	// if (xchg(&thiscpu->cpu_status, CPU_STARTED) == CPU_HALTED)
+	// 	lock_kernel();
+
 	// Check that interrupts are disabled.  If this assertion
 	// fails, DO NOT be tempted to fix it by inserting a "cli" in
 	// the interrupt path.
@@ -318,7 +323,8 @@ trap(struct Trapframe *tf)
 		// Acquire the big kernel lock before doing any
 		// serious kernel work.
 		// LAB 4: Your code here.
-		lock_kernel();
+		// lock_kernel();
+		LOCK(sched);
 		assert(curenv);
 
 		asm volatile("fxsave %0" : "=m"(curenv->FPU_state));
@@ -327,6 +333,7 @@ trap(struct Trapframe *tf)
 		if (curenv->env_status == ENV_DYING) {
 			env_free(curenv);
 			curenv = NULL;
+			UNLOCK(sched);
 			sched_yield();
 		}
 
@@ -336,6 +343,7 @@ trap(struct Trapframe *tf)
 		curenv->env_tf = *tf;
 		// The trapframe on the stack should be ignored from here on.
 		tf = &curenv->env_tf;
+		UNLOCK(sched);
 	}
 
 	// Record that tf is the last real trapframe so
@@ -348,10 +356,13 @@ trap(struct Trapframe *tf)
 	// If we made it to this point, then no other environment was
 	// scheduled, so we should return to the current environment
 	// if doing so makes sense.
+	LOCK(sched);
 	if (curenv && curenv->env_status == ENV_RUNNING)
 		env_run(curenv);
-	else
+	else {
+		UNLOCK(sched);
 		sched_yield();
+	}
 }
 
 
@@ -403,13 +414,20 @@ page_fault_handler(struct Trapframe *tf)
 	//   (the 'tf' variable points at 'curenv->env_tf').
 
 	// LAB 4: Your code here.
+	LOCK(sched);
+	LOCK(upcall);
 	if (curenv->env_pgfault_upcall) {
 		struct UTrapframe *utf;
 		if (tf->tf_esp>=UXSTACKTOP-PGSIZE && tf->tf_esp<UXSTACKTOP)
 			utf = (struct UTrapframe*)(tf->tf_esp-4)-1;
 		else
 			utf = (struct UTrapframe*)UXSTACKTOP-1;
-		user_mem_assert(curenv, utf, sizeof(struct UTrapframe), PTE_W);
+		if (user_mem_check(curenv,utf,sizeof(struct UTrapframe),PTE_W|PTE_U) < 0) {
+			cprintf("[%08x] user_mem_check assertion failure for va %08x\n", curenv->env_id, utf);
+			UNLOCK(upcall);
+			UNLOCK(sched);
+			env_destroy(curenv);	// do not return
+		}
 		utf->utf_fault_va = fault_va;
 		utf->utf_err = tf->tf_err;
 		utf->utf_regs = tf->tf_regs;
@@ -418,6 +436,7 @@ page_fault_handler(struct Trapframe *tf)
 		utf->utf_esp = tf->tf_esp;
 		tf->tf_eip = (unsigned)curenv->env_pgfault_upcall;
 		tf->tf_esp = (unsigned)utf;
+		UNLOCK(upcall);
 		env_run(curenv);
 	}
 
@@ -425,6 +444,8 @@ page_fault_handler(struct Trapframe *tf)
 	cprintf("[%08x] user fault va %08x ip %08x\n",
 		curenv->env_id, fault_va, tf->tf_eip);
 	print_trapframe(tf);
-	env_destroy(curenv);
+	UNLOCK(upcall);
+	UNLOCK(sched);
+	env_destroy(curenv);	// do not return
 }
 

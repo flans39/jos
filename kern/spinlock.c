@@ -60,6 +60,7 @@ __spin_initlock(struct spinlock *lk, char *name)
 void
 spin_lock(struct spinlock *lk)
 {
+	// if (lk!=&console_lock) cprintf("[CPU %d] lock %x\n", cpunum(), ((unsigned*)read_ebp())[1]);
 #ifdef DEBUG_SPINLOCK
 	if (holding(lk))
 		panic("CPU %d cannot acquire %s: already holding", cpunum(), lk->name);
@@ -67,7 +68,7 @@ spin_lock(struct spinlock *lk)
 
 	// The xchg is atomic.
 	// It also serializes, so that reads after acquire are not
-	// reordered before it. 
+	// reordered before it.
 	while (xchg(&lk->locked, 1) != 0)
 		asm volatile ("pause");
 
@@ -82,13 +83,14 @@ spin_lock(struct spinlock *lk)
 void
 spin_unlock(struct spinlock *lk)
 {
+	// if (lk!=&console_lock) cprintf("[CPU %d] unlock %x\n", cpunum(), ((unsigned*)read_ebp())[1]);
 #ifdef DEBUG_SPINLOCK
 	if (!holding(lk)) {
 		int i;
 		uint32_t pcs[10];
 		// Nab the acquiring EIP chain before it gets released
 		memmove(pcs, lk->pcs, sizeof pcs);
-		cprintf("CPU %d cannot release %s: held by CPU %d\nAcquired at:", 
+		cprintf("CPU %d cannot release %s: held by CPU %d\nAcquired at:",
 			cpunum(), lk->name, lk->cpu->cpu_id);
 		for (i = 0; i < 10 && pcs[i]; i++) {
 			struct Eipdebuginfo info;
@@ -113,4 +115,6 @@ spin_unlock(struct spinlock *lk)
 	// (vol 3, 8.2.2). Because xchg() is implemented using asm volatile,
 	// gcc will not reorder C statements across the xchg.
 	xchg(&lk->locked, 0);
+
+	asm volatile("pause");
 }

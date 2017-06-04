@@ -348,14 +348,18 @@ page_init(void)
 struct PageInfo *
 page_alloc(int alloc_flags)
 {
+	LOCK(page);
 	// Fill this function in
-	if (!page_free_list)
+	if (!page_free_list) {
+		UNLOCK(page);
 		return NULL;
+	}
 	struct PageInfo *ret=page_free_list;
 	page_free_list = page_free_list->pp_link;
 	ret->pp_link = NULL;
 	if (alloc_flags & ALLOC_ZERO)
 		memset(page2kva(ret), 0, PGSIZE);
+	UNLOCK(page);
 	return ret;
 }
 
@@ -369,8 +373,10 @@ page_free(struct PageInfo *pp)
 	// Fill this function in
 	// Hint: You may want to panic if pp->pp_ref is nonzero or
 	// pp->pp_link is not NULL.
+	LOCK(page);
 	pp->pp_link = page_free_list;
 	page_free_list = pp;
+	UNLOCK(page);
 }
 
 //
@@ -609,19 +615,19 @@ int
 user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
 	// LAB 3: Your code here.
-	LOCK(page);
+	// LOCK(page);
 	const void *end = va+len;
 	pte_t *pte;
 	while (va < end) {
 		pte = pgdir_walk(env->env_pgdir, va, 0);
 		if (!pte || va>=(void*)ULIM || ((*pte)&perm)!=perm) {
 			user_mem_check_addr = (unsigned)va;
-			UNLOCK(page);
+			// UNLOCK(page);
 			return -E_FAULT;
 		}
 		va = (void*)ROUNDUP((unsigned)va+1, PGSIZE);
 	}
-	UNLOCK(page);
+	// UNLOCK(page);
 	return 0;
 }
 

@@ -23,10 +23,11 @@ sys_cputs(const char *s, size_t len)
 	// Destroy the environment if not.
 
 	// LAB 3: Your code here.
-	if (user_mem_check(curenv,s,len,PTE_U) < 0) {
-		cprintf("[%08x] user_mem_check assertion failure for va %08x\n", curenv->env_id, s);
-		env_destroy(curenv);	// do not return
-	}
+	// if (user_mem_check(curenv,s,len,PTE_U) < 0) {
+	// 	cprintf("[%08x] user_mem_check assertion failure for va %08x\n", curenv->env_id, s);
+	// 	env_destroy(curenv);	// do not return
+	// }
+	user_mem_assert(curenv,s,len,0);
 	// Print the string supplied by the user.
 	cprintf("%.*s", len, s);
 }
@@ -126,9 +127,9 @@ sys_env_set_status(envid_t envid, int status)
 		return -E_BAD_ENV;
 	if (status!=ENV_RUNNABLE && status!=ENV_NOT_RUNNABLE)
 		return -E_INVAL;
-	LOCK(sched);
+	// LOCK(sched);
 	e->env_status = status;
-	UNLOCK(sched);
+	// UNLOCK(sched);
 	return 0;
 }
 
@@ -148,9 +149,9 @@ sys_env_set_pgfault_upcall(envid_t envid, void *func)
 	struct Env *e;
 	if (envid2env(envid,&e,1) < 0)
 		return -E_BAD_ENV;
-	LOCK(upcall);
+	// LOCK(upcall);
 	e->env_pgfault_upcall = func;
-	UNLOCK(upcall);
+	// UNLOCK(upcall);
 	return 0;
 }
 
@@ -187,18 +188,18 @@ sys_page_alloc(envid_t envid, void *va, int perm)
 		return -E_BAD_ENV;
 	if ((unsigned)va>=UTOP || (unsigned)va%PGSIZE || (perm&~PTE_SYSCALL)!=0 || !(perm&PTE_U) || !(perm&PTE_P))
 		return -E_INVAL;
-	LOCK(page);
+	// LOCK(page);
 	struct PageInfo *p=page_alloc(ALLOC_ZERO);
 	if (!p) {
-		UNLOCK(page);
+		// UNLOCK(page);
 		return -E_NO_MEM;
 	}
 	if (page_insert(e->env_pgdir,p,va,perm) < 0) {
 		page_free(p);
-		UNLOCK(page);
+		// UNLOCK(page);
 		return -E_NO_MEM;
 	}
-	UNLOCK(page);
+	// UNLOCK(page);
 	return 0;
 }
 
@@ -238,18 +239,18 @@ sys_page_map(envid_t srcenvid, void *srcva,
 		return -E_INVAL;
 	if ((perm&~PTE_SYSCALL)!=0 || !(perm&PTE_U) || !(perm&PTE_P))
 		return -E_INVAL;
-	LOCK(page);
+	// LOCK(page);
 	pte_t *pte;
 	struct PageInfo *p=page_lookup(e1->env_pgdir,srcva,&pte);
 	if (!p || ((perm&PTE_W) && !(*pte&PTE_W))) {
-		UNLOCK(page);
+		// UNLOCK(page);
 		return -E_INVAL;
 	}
 	if (page_insert(e2->env_pgdir,p,dstva,perm) < 0) {
-		UNLOCK(page);
+		// UNLOCK(page);
 		return -E_NO_MEM;
 	}
-	UNLOCK(page);
+	// UNLOCK(page);
 	return 0;
 }
 
@@ -272,9 +273,9 @@ sys_page_unmap(envid_t envid, void *va)
 		return -E_BAD_ENV;
 	if ((unsigned)va>=UTOP || (unsigned)va%PGSIZE)
 		return -E_INVAL;
-	LOCK(page);
+	// LOCK(page);
 	page_remove(e->env_pgdir, va);
-	UNLOCK(page);
+	// UNLOCK(page);
 	return 0;
 }
 
@@ -322,46 +323,37 @@ sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
 	// LAB 4: Your code here.
 	// panic("sys_ipc_try_send not implemented");
 	struct Env *e;
+	pte_t *pte;
+	struct PageInfo *p;
 	if (envid2env(envid,&e,0) < 0)
 		return -E_BAD_ENV;
+	if ((unsigned)srcva < UTOP) {
+		if ((unsigned)srcva%PGSIZE)
+			return -E_INVAL;
+		if ((perm&~PTE_SYSCALL)!=0 || !(perm&PTE_U) || !(perm&PTE_P))
+			return -E_INVAL;
+		p = page_lookup(curenv->env_pgdir,srcva,&pte);
+		if (!p || ((perm&PTE_W) && !(*pte&PTE_W)))
+			return -E_INVAL;
+	}
 	LOCK(ipc);
 	if (!e->env_ipc_recving) {
 		UNLOCK(ipc);
 		return -E_IPC_NOT_RECV;
 	}
-	e->env_ipc_recving = 0;
-	e->env_ipc_from = curenv->env_id;
-	e->env_ipc_value = value;
-	if ((unsigned)srcva >= UTOP)
-		e->env_ipc_perm = 0;
-	else {
-		if ((unsigned)srcva%PGSIZE) {
-			UNLOCK(ipc);
-			return -E_INVAL;
-		}
-		if ((perm&~PTE_SYSCALL)!=0 || !(perm&PTE_U) || !(perm&PTE_P)) {
-			UNLOCK(ipc);
-			return -E_INVAL;
-		}
-		pte_t *pte;
-		LOCK(page);
-		struct PageInfo *p=page_lookup(curenv->env_pgdir,srcva,&pte);
-		if (!p || ((perm&PTE_W) && !(*pte&PTE_W))) {
-			UNLOCK(page);
-			UNLOCK(ipc);
-			return -E_INVAL;
-		}
+	if ((unsigned)srcva < UTOP) {
 		if (page_insert(e->env_pgdir,p,e->env_ipc_dstva,perm) < 0) {
-			UNLOCK(page);
 			UNLOCK(ipc);
 			return -E_NO_MEM;
 		}
 		e->env_ipc_perm = perm;
-		UNLOCK(page);
 	}
-	LOCK(sched);
-	e->env_status = ENV_RUNNABLE;
-	UNLOCK(sched);
+	e->env_ipc_recving = 0;
+	e->env_ipc_from = curenv->env_id;
+	e->env_ipc_value = value;
+	e->env_tf.tf_regs.reg_eax = 0;
+	if (e->env_status != ENV_RUNNING)
+		e->env_status = ENV_RUNNABLE;
 	UNLOCK(ipc);
 	return 0;
 }
@@ -382,21 +374,17 @@ sys_ipc_recv(void *dstva)
 {
 	// LAB 4: Your code here.
 	// panic("sys_ipc_recv not implemented");
+	if ((unsigned)dstva<UTOP && (unsigned)dstva%PGSIZE)
+		return -E_INVAL;
 	LOCK(ipc);
-	LOCK(sched);
+	// LOCK(sched);
 	curenv->env_ipc_recving = 1;
-	if ((unsigned)dstva < UTOP) {
-		if ((unsigned)dstva%PGSIZE) {
-			UNLOCK(sched);
-			UNLOCK(ipc);
-			return -E_INVAL;
-		}
-		curenv->env_ipc_dstva = dstva;
-	}
-	curenv->env_tf.tf_regs.reg_eax = 0;
+	curenv->env_ipc_dstva = dstva;
 	curenv->env_status = ENV_NOT_RUNNABLE;
-	UNLOCK(sched);
+	curenv = NULL;
+	// UNLOCK(sched);
 	UNLOCK(ipc);
+	sched_yield();
 	return 0;
 }
 
@@ -409,7 +397,6 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 	// LAB 3: Your code here.
 
 	// panic("syscall not implemented");
-
 	switch (syscallno) {
 	case SYS_cputs:
 		sys_cputs((const char*)a1, a2);

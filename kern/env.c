@@ -88,14 +88,14 @@ envid2env(envid_t envid, struct Env **env_store, bool checkperm)
 	// to ensure that the envid is not stale
 	// (i.e., does not refer to a _previous_ environment
 	// that used the same slot in the envs[] array).
-	LOCK(sched);
+	// LOCK(sched);
 	e = &envs[ENVX(envid)];
 	if (e->env_status == ENV_FREE || e->env_id != envid) {
 		*env_store = 0;
-		UNLOCK(sched);
+		// UNLOCK(sched);
 		return -E_BAD_ENV;
 	}
-	UNLOCK(sched);
+	// UNLOCK(sched);
 
 	// Check that the calling environment has legitimate permission
 	// to manipulate the specified environment.
@@ -165,13 +165,13 @@ env_init_percpu(void)
 static int
 env_setup_vm(struct Env *e)
 {
-	LOCK(page);
+	// LOCK(page);
 	int i;
 	struct PageInfo *p = NULL;
 
 	// Allocate a page for the page directory
 	if (!(p = page_alloc(ALLOC_ZERO))) {
-		UNLOCK(page);
+		// UNLOCK(page);
 		return -E_NO_MEM;
 	}
 
@@ -203,7 +203,7 @@ env_setup_vm(struct Env *e)
 	// UVPT maps the env's own page table read-only.
 	// Permissions: kernel R, user R
 	e->env_pgdir[PDX(UVPT)] = PADDR(e->env_pgdir) | PTE_P | PTE_U;
-	UNLOCK(page);
+	// UNLOCK(page);
 	return 0;
 }
 
@@ -415,7 +415,7 @@ void
 env_free(struct Env *e)
 {
 	// sched locked before entry
-	LOCK(page);
+	// LOCK(page);
 	LOCK(envlist);
 	pte_t *pt;
 	uint32_t pdeno, pteno;
@@ -463,7 +463,7 @@ env_free(struct Env *e)
 	e->env_link = env_free_list;
 	env_free_list = e;
 	UNLOCK(envlist);
-	UNLOCK(page);
+	// UNLOCK(page);
 }
 
 //
@@ -477,10 +477,10 @@ env_destroy(struct Env *e)
 	// If e is currently running on other CPUs, we change its state to
 	// ENV_DYING. A zombie environment will be freed the next time
 	// it traps to the kernel.
-	LOCK(sched);
+	// LOCK(sched);
 	if (e->env_status == ENV_RUNNING && curenv != e) {
 		e->env_status = ENV_DYING;
-		UNLOCK(sched);
+		// UNLOCK(sched);
 		return;
 	}
 
@@ -488,10 +488,10 @@ env_destroy(struct Env *e)
 
 	if (curenv == e) {
 		curenv = NULL;
-		UNLOCK(sched);
+		// UNLOCK(sched);
 		sched_yield();
 	}
-	UNLOCK(sched);
+	// UNLOCK(sched);
 }
 
 
@@ -555,6 +555,10 @@ env_run(struct Env *e)
 	asm volatile("fxrstor %0" : : "m"(e->FPU_state));
 	// unlock_kernel();
 	UNLOCK(sched);
+	// if (e->env_tf.tf_regs.reg_eax == 11 || e->env_tf.tf_regs.reg_eax == 12) {
+	// 	print_trapframe(&e->env_tf);
+	// 	cprintf("!!\n");
+	// }
 	env_pop_tf(&e->env_tf);
 
 	// panic("env_run not yet implemented");
